@@ -1,0 +1,300 @@
+  AWSTemplateFormatVersion: 2010-09-09
+  Description: Sample CloudFormation template for basic AWS components
+
+  Parameters: 
+    myEnvironment: 
+      Description: The Environment these resources will be used in
+      Type: String
+      AllowedValues: 
+        - prod
+        - test
+        
+  Mappings:
+    AMIForEC2:
+      us-west-2:
+        test: "ami-0d6621c01e8c2de2c"
+        prod: "ami-0d6621c01e8c2de2c"
+    InstanceTypeEC2:
+      InstanceEnv:
+        test: "t2.micro"
+        prod: "t2.micro"
+    CidrBase:
+      EnvCidr:
+        test: "10.0"
+        prod: "10.1"
+    AccessAllowed:
+      AllowedEnv:
+        test: "0.0.0.0/0"
+        prod: "0.0.0.0/0"
+        
+  Resources:
+    VPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: !Join [ ".", [ !FindInMap [CidrBase, EnvCidr, Ref: "myEnvironment"], "0.0/16" ] ]
+ 
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    InternetGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref VPC
+        InternetGatewayId: !Ref InternetGateway
+               
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Sub ${AWS::Region}a
+        CidrBlock: !Join [ ".", [ !FindInMap [CidrBase, EnvCidr, Ref: "myEnvironment"], "0.0/24" ] ]
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+               
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Sub ${AWS::Region}b
+        CidrBlock: !Join [ ".", [ !FindInMap [CidrBase, EnvCidr, Ref: "myEnvironment"], "1.0/24" ] ]
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    PublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        DestinationCidrBlock: 0.0.0.0/0
+        RouteTableId: !Ref PublicRouteTable
+        GatewayId: !Ref InternetGateway
+    
+    PublicSubnet1RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        SubnetId: !Ref PublicSubnet1
+        
+    PublicSubnet2RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        SubnetId: !Ref PublicSubnet2
+
+    NATEIP1:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+            
+    NATEIP2:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+            
+    NATGateway1:
+      Type: AWS::EC2::NatGateway
+      Properties: 
+        AllocationId:
+          Fn::GetAtt:
+            - NATEIP1
+            - AllocationId
+        SubnetId: !Ref PublicSubnet1
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    NATGateway2:
+      Type: AWS::EC2::NatGateway
+      Properties: 
+        AllocationId:
+          Fn::GetAtt:
+            - NATEIP2
+            - AllocationId
+        SubnetId: !Ref PublicSubnet2
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    ApplicationSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Sub ${AWS::Region}a
+        CidrBlock: !Join [ ".", [ !FindInMap [CidrBase, EnvCidr, Ref: "myEnvironment"], "2.0/24" ] ]
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+            
+    ApplicationSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Sub ${AWS::Region}b
+        CidrBlock:  !Join [ ".", [ !FindInMap [CidrBase, EnvCidr, Ref: "myEnvironment"], "3.0/24" ] ]
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+            
+    PrivateRouteTable1:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+
+    PrivateRouteTable2:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+            
+    PrivateRoute1:
+      Type: AWS::EC2::Route
+      Properties:
+        DestinationCidrBlock: 0.0.0.0/0
+        RouteTableId: !Ref PrivateRouteTable1
+        NatGatewayId: !Ref NATGateway1
+
+    PrivateRoute2:
+      Type: AWS::EC2::Route
+      Properties:
+        DestinationCidrBlock: 0.0.0.0/0
+        RouteTableId: !Ref PrivateRouteTable2
+        NatGatewayId: !Ref NATGateway2
+        
+    ApplicationSubnet1RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable1
+        SubnetId: !Ref ApplicationSubnet1
+        
+    ApplicationSubnet2RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable2
+        SubnetId: !Ref ApplicationSubnet2
+        
+    LoadBalancerSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties: 
+        GroupDescription: Security Group for ApplicationLoadBalancer
+        GroupName: LoadBalancerSecurityGroup
+        Tags: 
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+        VpcId: !Ref VPC
+        
+    LoadBalancerSecurityGroupHttp:
+      Type: 'AWS::EC2::SecurityGroupIngress'
+      Properties:
+        GroupId: !Ref LoadBalancerSecurityGroup
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: !FindInMap [AccessAllowed, AllowedEnv, Ref: "myEnvironment"]
+ 
+    ApplicationLoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties: 
+        IpAddressType: ipv4
+        Name: MyLoadBalancer
+        Scheme: internet-facing
+        SecurityGroups: 
+          - !Ref LoadBalancerSecurityGroup
+        Subnets: 
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        Tags: 
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+        Type: application
+        
+    LoadBalancerHTTPListener:
+      Type: 'AWS::ElasticLoadBalancingV2::Listener'
+      Properties:
+        DefaultActions:
+        - TargetGroupArn: !Ref ApplicationTargetGroup
+          Type: forward
+        LoadBalancerArn: !Ref ApplicationLoadBalancer
+        Port: 80
+        Protocol: HTTP
+    
+    ApplicationTargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        Port: 80
+        Protocol: HTTP
+        TargetType: instance
+        VpcId: !Ref VPC
+        
+    AutoScalingGroup: 
+      Type: AWS::AutoScaling::AutoScalingGroup
+      Properties: 
+        AvailabilityZones:
+          - !Sub ${AWS::Region}a
+          - !Sub ${AWS::Region}b
+        LaunchConfigurationName: !Ref ApplicationLaunchConfiguration
+        MaxSize: "3"
+        DesiredCapacity: "2"
+        MinSize: "1"
+        TargetGroupARNs:
+          - !Ref ApplicationTargetGroup
+        VPCZoneIdentifier:
+          - !Ref ApplicationSubnet1
+          - !Ref ApplicationSubnet2
+    
+    ApplicationLaunchConfiguration:
+      Type:  AWS::AutoScaling::LaunchConfiguration
+      Properties:
+        ImageId: !FindInMap [AMIForEC2, Ref: "AWS::Region", Ref: "myEnvironment"]
+        InstanceType: !FindInMap [InstanceTypeEC2, InstanceEnv, Ref: "myEnvironment"]
+        SecurityGroups:
+          - !Ref ApplicationSecurityGroup1
+        UserData:
+          Fn::Base64:
+            Fn::Sub: |
+              #!/bin/bash
+              yum install -y httpd
+              echo "Hello World" > /var/www/html/index.html
+              systemctl enable httpd
+              systemctl start httpd          
+            
+    ApplicationSecurityGroup1:
+      Type: AWS::EC2::SecurityGroup
+      Properties: 
+        GroupDescription: Security Group for ApplicationLaunchConfiguration
+        GroupName: ApplicationSecurityGroup
+        Tags: 
+          - Key: Environment
+            Value: !Sub ${myEnvironment}
+        VpcId: !Ref VPC
+        
+    ApplicationSecurityGroupHttp:
+      Type: 'AWS::EC2::SecurityGroupIngress'
+      Properties:
+        GroupId: !Ref ApplicationSecurityGroup1
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
